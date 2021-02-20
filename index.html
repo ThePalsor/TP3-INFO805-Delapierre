@@ -10,7 +10,18 @@
 	<script src="three.js"></script>
 	<script src="js/Detector.js"></script>
 	<script src="js/FlyControls.js"></script>
+	<script src="js/OBJLoader.js"></script>
+	<script id="vertexShader" type="x-shader/x-vertex">
+
+	</script>
+	<script id="fragmentShaderSunNoise" type="x-shader/x-vertex">
+
+
+	</script>
+
 	<script type="text/javascript">
+
+
 
 		// Checks that your browser supports WebGL. 
 		if (!Detector.webgl) Detector.addGetWebGLMessage();
@@ -27,8 +38,68 @@
 		var earth = null;
 		var moon = null;
 		var sunLight = null;
+		var cloudMesh = null;
+
 
 		var controls = null;
+
+		function createEarthCloud() {
+			// create destination canvas
+			var canvasResult = document.createElement('canvas')
+			canvasResult.width = 1024
+			canvasResult.height = 512
+			var contextResult = canvasResult.getContext('2d')
+
+			// load earthcloudmap
+			var imageMap = new Image();
+			imageMap.addEventListener("load", function () {
+
+				// create dataMap ImageData for earthcloudmap
+				var canvasMap = document.createElement('canvas')
+				canvasMap.width = imageMap.width
+				canvasMap.height = imageMap.height
+				var contextMap = canvasMap.getContext('2d')
+				contextMap.drawImage(imageMap, 0, 0)
+				var dataMap = contextMap.getImageData(0, 0, canvasMap.width, canvasMap.height)
+
+				// load earthcloudmaptrans
+				var imageTrans = new Image();
+				imageTrans.addEventListener("load", function () {
+					// create dataTrans ImageData for earthcloudmaptrans
+					var canvasTrans = document.createElement('canvas')
+					canvasTrans.width = imageTrans.width
+					canvasTrans.height = imageTrans.height
+					var contextTrans = canvasTrans.getContext('2d')
+					contextTrans.drawImage(imageTrans, 0, 0)
+					var dataTrans = contextTrans.getImageData(0, 0, canvasTrans.width, canvasTrans.height)
+					// merge dataMap + dataTrans into dataResult
+					var dataResult = contextMap.createImageData(canvasMap.width, canvasMap.height)
+					for (var y = 0, offset = 0; y < imageMap.height; y++) {
+						for (var x = 0; x < imageMap.width; x++, offset += 4) {
+							dataResult.data[offset + 0] = dataMap.data[offset + 0]
+							dataResult.data[offset + 1] = dataMap.data[offset + 1]
+							dataResult.data[offset + 2] = dataMap.data[offset + 2]
+							dataResult.data[offset + 3] = 255 - dataTrans.data[offset + 0]
+						}
+					}
+					// update texture with result
+					contextResult.putImageData(dataResult, 0, 0)
+					material.map.needsUpdate = true;
+				})
+				imageTrans.src = 'images/earthcloudmaptrans.jpg';
+			}, false);
+			imageMap.src = 'images/earthcloudmap.jpg';
+
+			var geometry = new THREE.SphereGeometry(1.05, 128, 128)
+			var material = new THREE.MeshPhongMaterial({
+				map: new THREE.Texture(canvasResult),
+				side: THREE.DoubleSide,
+				transparent: true,
+				opacity: 0.8,
+			})
+			var mesh = new THREE.Mesh(geometry, material)
+			return mesh
+		}
 
 		// This function is called whenever the document is loaded
 		function init() {
@@ -43,28 +114,39 @@
 			});
 			// Set the viewport size
 			renderer.setSize(canvas.width, canvas.height);
-			document.body.appendChild( renderer.domElement );
+			document.body.appendChild(renderer.domElement);
+
+
+			renderer.shadowMap.enabled = true;
+			// rendu coûteux mais plus joli (default: THREE.PCFShadowMap)
+			renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
 			// Create a new Three.js scene
 			scene = new THREE.Scene();
 			// Add  a camera so we can view the scene
 			camera = new THREE.PerspectiveCamera(45, canvas.width / canvas.height, 1, 4000);
 
 			controls = new THREE.FlyControls(camera, renderer.domElement);
-			
+			controls.rollSpeed = 0.5;
+			controls.dragToLook = true;
+
 			var mapEarth = new THREE.TextureLoader().load("images/earth_atmos_2048.jpg");
 			var mapMoon = new THREE.TextureLoader().load("images/moon_1024.jpg");
+			var mapSun = new THREE.TextureLoader().load("images/2k_sun.jpg");
 			var earthSpec = new THREE.TextureLoader().load("images/earth_specular_2048.jpg");
-			var earthEmissive = new THREE.TextureLoader().load("images/earth_lights_2048.jpg");
 
 			var earthNormal = new THREE.TextureLoader().load("images/earth_normal_2048.jpg");
 
-			var earthMaterial = new THREE.MeshPhongMaterial({ map: mapEarth, normalMap: earthNormal, specularMap: earthSpec, emissiveMap: earthEmissive, emissive: 0xffffff});
-			var moonMaterial = new THREE.MeshPhongMaterial({ map: mapMoon });
-			var sunMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
 
-			var geometrySun = new THREE.SphereGeometry(2, 256, 256);
-			var geometryEarth = new THREE.SphereGeometry(1, 128, 128);
-			var geometryMoon = new THREE.SphereGeometry(0.3, 128, 128);
+			var earthMaterial = new THREE.MeshPhongMaterial({ map: mapEarth, normalMap: earthNormal, specularMap: earthSpec });
+			var moonMaterial = new THREE.MeshPhongMaterial({ map: mapMoon });
+			var sunMaterial = new THREE.MeshBasicMaterial({ map: mapSun });
+
+			var geometrySun = new THREE.SphereGeometry(2, 64, 64);
+			var geometryEarth = new THREE.SphereGeometry(1, 32, 32);
+			var geometryEarthClouds = new THREE.SphereGeometry(1.1, 32, 32);
+
+			var geometryMoon = new THREE.SphereGeometry(0.3, 32, 32);
 
 			solarSystem = new THREE.Group();
 			earthGroup = new THREE.Group();
@@ -72,6 +154,10 @@
 			sun = new THREE.Mesh(geometrySun, sunMaterial)
 			earth = new THREE.Mesh(geometryEarth, earthMaterial);
 			moon = new THREE.Mesh(geometryMoon, moonMaterial);
+
+			cloudMesh = createEarthCloud();
+			earthGroup.add(cloudMesh);
+
 
 			moonGroup.add(moon);
 
@@ -81,18 +167,68 @@
 			solarSystem.add(sun);
 			solarSystem.add(earthGroup);
 
-			earth.position.x = 9;
-			moon.position.z = 2;
+			earth.position.x = 15;
+			cloudMesh.position.x = earth.position.x;
+			moon.position.z = 5;
+
+			earth.castShadow = true;
+			earth.receiveShadow = true;
+			moon.castShadow = true;
+			moon.receiveShadow = true;
 
 			sunLight = new THREE.PointLight(0xffffff, 1.5);
 			sunLight.position.x = solarSystem.position.x;
 			sunLight.position.y = solarSystem.position.y;
 			sunLight.position.z = solarSystem.position.z;
 
+
+			sunLight.castShadow = true;
+			// On peut aussi paramétrer la qualité du calcul
+			sunLight.shadow.mapSize.width = 1024;  // default
+			sunLight.shadow.mapSize.height = 1024; // default
+			sunLight.shadow.camera.near = 0.5;    // default
+			sunLight.shadow.camera.far = 50;
+
 			// Finally, add the mesh to our scene
 			scene.add(solarSystem);
 			scene.add(sunLight);
 			camera.position.z = 5;
+
+			var path = "images/MilkyWay/";
+			var format = '.jpg';
+			var urls = [
+				path + 'posx' + format, path + 'negx' + format,
+				path + 'posy' + format, path + 'negy' + format,
+				path + 'posz' + format, path + 'negz' + format
+			];
+			var textureCube = new THREE.CubeTextureLoader().load(urls);
+			textureCube.format = THREE.RGBFormat;
+			scene.background = textureCube;
+
+			var loader = new OBJLoader();
+
+			loader.load(
+				// resource URL
+				'https://threejsfundamentals.org/threejs/resources/models/windmill/windmill.obj',
+				// called when resource is loaded
+				function (object) {
+					object.position.x = 15;
+					scene.add(object);
+
+				},
+				// called when loading is in progresses
+				function (xhr) {
+
+					console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+
+				},
+				// called when loading has errors
+				function (error) {
+
+					console.log('An error happened');
+
+				}
+			);
 		}
 
 		// This function is called regularly to update the canvas webgl.
@@ -121,18 +257,20 @@
 			var now = Date.now();
 			var deltaTime = now - curTime;
 			curTime = now;
-			var fracTime = deltaTime / 1000 / 50; // in seconds
+			var fracTime = deltaTime / 1000;
 			// Now we can move objects, camera, etc.
 			// Example: rotation cube
 			var angle = fracTime * Math.PI * 2;
 			// Notez que l'axe y est l'axe "vertical" usuellement.
 			earthGroup.rotation.y += angle / 365;// la terre tourne en 365 jours
+			cloudMesh.rotation.y += angle / 2;
 			earth.rotation.y += angle; // et en un jour sur elle-même
 			moonGroup.rotation.y += angle / 28; // la lune tourne en 28 jours autour de la terre
 			moon.rotation.y += angle / 28; // et en 28 jours aussi sur elle-même pour faire face à la terre
 			moonGroup.position.x = earth.position.x;
 			moonGroup.position.y = earth.position.y;
 			moonGroup.position.z = earth.position.z;
+
 
 			controls.update(deltaTime / 1000);
 		}
